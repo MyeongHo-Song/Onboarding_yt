@@ -23,7 +23,7 @@ class RTSPStreamer:
         self.pipeline = None
         Gst.init(None)
 
-    def link_elements(self, *elements):
+    def __link_elements(self, *elements):
         """
         Helper function to sequentially link multiple GStreamer elements.
         
@@ -36,7 +36,7 @@ class RTSPStreamer:
                 return False
         return True
 
-    def create_pipeline(self):
+    def __create_pipeline(self):
         """
         Create and configure the GStreamer pipeline using rtspsrc and appsink.
         
@@ -48,47 +48,47 @@ class RTSPStreamer:
             return False
 
         # Create elements
-        self.src    = Gst.ElementFactory.make("rtspsrc", "source")
-        self.depay  = Gst.ElementFactory.make("rtph264depay", "depay")
-        self.parse  = Gst.ElementFactory.make("h264parse", "parse")
-        self.decoder= Gst.ElementFactory.make("avdec_h264", "decoder")
-        self.convert= Gst.ElementFactory.make("videoconvert", "convert")
-        self.sink   = Gst.ElementFactory.make("appsink", "sink")
+        src    = Gst.ElementFactory.make("rtspsrc", "source")
+        depay  = Gst.ElementFactory.make("rtph264depay", "depay")
+        parse  = Gst.ElementFactory.make("h264parse", "parse")
+        decoder= Gst.ElementFactory.make("avdec_h264", "decoder")
+        convert= Gst.ElementFactory.make("videoconvert", "convert")
+        sink   = Gst.ElementFactory.make("appsink", "sink")
 
-        if not all([self.src, self.depay, self.parse, self.decoder, self.convert, self.sink]):
+        if not all([src, depay, parse, decoder, convert, sink]):
             print("요소 생성 실패")
             return False
 
         # Set RTSP source properties
-        self.src.set_property("location", self.rtsp_url)
-        self.src.set_property("latency", 200)
+        src.set_property("location", self.rtsp_url)
+        src.set_property("latency", 200)
 
         # Configure appsink
-        self.sink.set_property("emit-signals", True)
-        self.sink.set_property("sync", False)
+        sink.set_property("emit-signals", True)
+        sink.set_property("sync", False)
         caps = Gst.Caps.from_string("video/x-raw, format=BGR")
-        self.sink.set_property("caps", caps)
-        self.sink.connect("new-sample", self.on_new_sample)
+        sink.set_property("caps", caps)
+        sink.connect("new-sample", self.__on_new_sample)
 
         # Add elements to pipeline
-        self.pipeline.add(self.src)
-        self.pipeline.add(self.depay)
-        self.pipeline.add(self.parse)
-        self.pipeline.add(self.decoder)
-        self.pipeline.add(self.convert)
-        self.pipeline.add(self.sink)
+        self.pipeline.add(src)
+        self.pipeline.add(depay)
+        self.pipeline.add(parse)
+        self.pipeline.add(decoder)
+        self.pipeline.add(convert)
+        self.pipeline.add(sink)
 
         # Connect pad-added signal
-        self.src.connect("pad-added", self.on_pad_added, self.depay)
+        src.connect("pad-added", self.__on_pad_added, depay)
 
         # Link elements in sequence
-        if not self.link_elements(self.depay, self.parse, self.decoder, self.convert, self.sink):
+        if not self.__link_elements(depay, parse, decoder, convert, sink):
             print("정적 요소 링크 실패")
             return False
 
         return True
 
-    def on_pad_added(self, src, new_pad, depay):
+    def __on_pad_added(self, src, new_pad, depay):
         """
         Callback function triggered when a new pad is added to rtspsrc.
         
@@ -108,7 +108,7 @@ class RTSPStreamer:
         else:
             print("패드 연결 실패:", ret)
 
-    def on_new_sample(self, sink):
+    def __on_new_sample(self, sink):
         """
         Callback function triggered when a new frame sample is received from appsink.
         
@@ -130,21 +130,24 @@ class RTSPStreamer:
 
             frame = np.frombuffer(map_info.data, dtype=np.uint8).reshape((height, width, 3))
             buf.unmap(map_info)
-            GLib.idle_add(self.visualize_frame, frame)
+            GLib.idle_add(self.__visualize_frame, frame)
             return Gst.FlowReturn.OK
         return Gst.FlowReturn.ERROR
 
-    def visualize_frame(self, frame):
+    def __visualize_frame(self, frame):
         """
-        Display the received frame using OpenCV.
+        Display the received frame using OpenCV and stop the loop if 'q' is pressed.
         
         :param frame: numpy.ndarray, Image frame to display
         """
         cv2.imshow("RTSP Stream", frame)
-        cv2.waitKey(1)
+        key = cv2.waitKey(1)
+        if key & 0xFF == ord('q'):
+            print("종료 키(q)가 입력됨 - 루프 종료")
+            self.loop.quit()
         return False
 
-    def on_message(self, bus, message):
+    def __on_message(self, bus, message):
         """
         Handle GStreamer bus messages.
         """
@@ -162,12 +165,12 @@ class RTSPStreamer:
         """
         Start the GStreamer pipeline and main event loop.
         """
-        if not self.create_pipeline():
+        if not self.__create_pipeline():
             return
 
         bus = self.pipeline.get_bus()
         bus.add_signal_watch()
-        bus.connect("message", self.on_message)
+        bus.connect("message", self.__on_message)
 
         ret = self.pipeline.set_state(Gst.State.PLAYING)
         if ret == Gst.StateChangeReturn.FAILURE:
