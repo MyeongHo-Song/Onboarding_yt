@@ -2,7 +2,7 @@
 File Name: run_ffmpeg_oop_multi.py
 Created Date: 2025.02.11
 Programmer: Yuntae Jeon
-Description: ffmpeg-based RTSP streaming in OOP style with multiple windows 
+Description: ffmpeg-based RTSP streaming in OOP style with multiple windows, without threading
 """
 
 import cv2
