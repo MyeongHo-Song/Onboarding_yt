@@ -1,7 +1,7 @@
 """
 File Name: run_gstreamer_multi.py
 Created Date: 2025.02.11
-Programmer: Yuntae Jeon (refactored by ChatGPT)
+Programmer: Yuntae Jeon
 Description: GStreamer-based RTSP streaming in OOP style (rtspsrc + appsink) for multiple cameras, without threading.
 """
 
