@@ -1,8 +1,9 @@
 """
-File Name: run_gstreamer_oop_multi.py
-Created Date: 2025.02.11
+File Name: run_gstreamer_oop_multi_report.py
+Created Date: 2025.02.12
 Programmer: Yuntae Jeon
-Description: GStreamer-based RTSP streaming in OOP style (rtspsrc + appsink) for multiple cameras, without threading.
+Description: GStreamer-based RTSP streaming in OOP style (rtspsrc + appsink) for multiple windows
+             This version measures FPS and approximate for 5 minutes.
 """
 
 import gi
@@ -24,6 +25,9 @@ class RTSPStreamer:
         self.window_name = window_name
         self.pipeline = None
         Gst.init(None)
+        # For FPS measurement
+        self.frame_count = 0
+        self.first_frame_time = None
 
         # Create and configure the OpenCV window once during initialization.
         cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
@@ -72,7 +76,6 @@ class RTSPStreamer:
         # Configure appsink
         sink.set_property("emit-signals", True)
         sink.set_property("sync", False)
-
         # Limit buffering to reduce memory usage
         sink.set_property("max-buffers", 1)
         sink.set_property("drop", True)
@@ -145,17 +148,43 @@ class RTSPStreamer:
             # Convert the raw buffer data to a numpy array for OpenCV
             frame = np.frombuffer(map_info.data, dtype=np.uint8).reshape((height, width, 3))
             buf.unmap(map_info)
-            # Schedule frame visualization in the GLib main loop
+            
+            # Update FPS counters
+            now = time.time()
+            if self.first_frame_time is None:
+                self.first_frame_time = now
+            self.frame_count += 1
+
+            # Schedule frame visualization (with FPS overlay) in the GLib main loop
             GLib.idle_add(self.__visualize_frame, frame)
             return Gst.FlowReturn.OK
         return Gst.FlowReturn.ERROR
 
     def __visualize_frame(self, frame):
         """
-        Display the received frame using OpenCV.
-        
+        Display the processed frame in an OpenCV window with overlays.
+       
         :param frame: numpy.ndarray, the image frame to display.
+        :return: bool, always returns False to indicate the callback need not be re-added.
         """
+        # Make a writable copy of the frame
+        frame = frame.copy()
+
+        # Calculate current average FPS (if available)
+        if self.first_frame_time is not None:
+            elapsed = time.time() - self.first_frame_time
+            fps = self.frame_count / elapsed if elapsed > 0 else 0.0
+            cv2.putText(frame, f"FPS: {fps:.2f}", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            
+        # Overlay frame count and timestamp on the frame
+        timestamp = time.strftime("%H:%M:%S", time.localtime())
+        cv2.putText(frame, f"{self.window_name} Frame: {self.frame_count}", (10, 90),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
+        cv2.putText(frame, f"Time: {timestamp}", (10, 120),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
+        
+        # Display the frame in the already-created window
         cv2.imshow(self.window_name, frame)
 
         return False
@@ -242,7 +271,7 @@ if __name__ == "__main__":
         else:
             print(f"[{window_name}] 스트리머 시작 실패")
 
-    # Add a GLib timeout to check for 'q' key press via OpenCV every 30ms.
+    # Function to check for the 'q' key press (every 30 ms)
     def check_exit():
         if cv2.waitKey(1) & 0xFF == ord('q'):
             print("종료 키(q)가 입력됨 - 메인 루프 종료")
@@ -251,6 +280,22 @@ if __name__ == "__main__":
         return True
 
     GLib.timeout_add(30, check_exit)
+
+    # Function to terminate after 5 minutes (300 seconds)
+    def on_timeout():
+        print("5분이 경과하여 스트리밍을 종료합니다.")
+        for streamer in streamers:
+            if streamer.first_frame_time is not None:
+                total_time = time.time() - streamer.first_frame_time
+                avg_fps = streamer.frame_count / total_time if total_time > 0 else 0.0
+                print(f"[{streamer.window_name}] 평균 FPS: {avg_fps:.2f} (총 프레임: {streamer.frame_count})")
+            else:
+                print(f"[{streamer.window_name}] 프레임을 한 번도 받지 못했습니다.")
+        main_loop.quit()
+        return False  # Stop the timeout callback.
+
+    # Schedule the termination after 300 seconds (5 minutes)
+    GLib.timeout_add_seconds(300, on_timeout)
 
     try:
         main_loop.run()
